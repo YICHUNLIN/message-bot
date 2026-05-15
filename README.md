@@ -1,181 +1,254 @@
-# Phase 1 部署包
+# @yichunlin/message-bot
 
-這個 zip 包含兩個獨立的部分:
+> 基於 [onion-strategy](https://github.com/YICHUNLIN/onion-strategy) 的訊息處理引擎,平台無關 — 可接 LINE、Discord、CLI、IoT、Webhook。
 
-```
-.
-├── README.md            ← 本檔
-├── message-bot/         ← 新獨立套件(要推到 GitHub)
-└── line/                ← 改寫後的 LINE 整合層(覆蓋你的主專案)
-```
+把「指令解析、prefix 路由、特殊訊息處理」這套通用邏輯抽出來,你只要寫平台特定的 adapter 跟業務邏輯。
 
----
-
-## 部署步驟
-
-### Step 1:把 `message-bot/` 推到 GitHub
+## 安裝
 
 ```bash
-# 進入 message-bot 資料夾
-cd message-bot
-
-# 初始化 git 並推到 GitHub
-git init
-git add .
-git commit -m "Initial commit: message-bot v0.1.0"
-git branch -M main
-git remote add origin git@github.com:YICHUNLIN/message-bot.git
-git push -u origin main
-
-# 打 tag(方便鎖版本)
-git tag v0.1.0
-git push --tags
-```
-
-**Repo 設成 Public**,才能讓 `npm install` 抓得到。
-
-### Step 2:在你的主專案安裝 message-bot
-
-回到你的主專案根目錄(包含 line/ 的那個):
-
-```bash
-# 安裝套件(從 GitHub)
 npm install github:YICHUNLIN/message-bot
-
-# 或鎖版本
-npm install github:YICHUNLIN/message-bot#v0.1.0
 ```
 
-安裝後 `package.json` 會出現:
+需要 Node.js 14 以上。
 
-```json
+## 快速開始
+
+```js
+const { createMessageBot } = require('@yichunlin/message-bot');
+
+const bot = createMessageBot({
+  subRoutesDir: __dirname,  // 動態載入這個資料夾下的 sub-routes
+});
+
+const ctx = await bot.handle({
+  text: '>weather Taipei',
+  userId: 'U123',
+});
+
+console.log(ctx.reply);
+```
+
+## 核心概念
+
+```
+ctx 進來
+   ↓
+[hooks] 使用者注入的 middleware(metadata、logger 等)
+   ↓
+[user middleware] bot.use() 加的
+   ↓
+[specialRoute] 特殊訊息(<REG>、[DATA] 等)
+   ↓
+[prefixParser] 解析 /、!、>
+   ↓
+[dispatch] 依 prefix 分派到對應 sub-route
+```
+
+## API
+
+### `createMessageBot(options)`
+
+建立 bot 實例。
+
+**Options**
+
+| 參數 | 型別 | 預設 | 說明 |
+|------|------|------|------|
+| `name` | string | `'message-bot'` | 標記用 |
+| `subRoutesDir` | string | - | 動態載入 sub-routes 的資料夾 |
+| `subRoutes` | object | - | 手動傳入 sub-routes,會覆蓋 dir 結果 |
+| `prefixes` | string[] | `['/', '!', '>']` | 自訂 prefix |
+| `specialRoute` | function | - | 特殊訊息路由 `(ctx) => Promise<void>` |
+| `hooks` | function[] | `[]` | 使用者注入的 middleware,依序執行 |
+| `onError` | function | console.error | 錯誤處理 |
+| `ignoreFiles` | string[] | - | loadSubRoutes 要忽略的檔名 |
+
+**回傳**
+
+```js
 {
-  "dependencies": {
-    "@yichunlin/message-bot": "github:YICHUNLIN/message-bot"
-  }
+  use(mw),           // 加 middleware(在 hooks 後、specialRoute 前)
+  useFirst(mw),      // 加最外層 middleware
+  handle(ctx),       // 處理一則訊息
+  getSubRoutes(),    // 取得已註冊的 sub-routes
+  getName(),         // 取得 bot 名稱
 }
 ```
 
-### Step 3:覆蓋 line/ 資料夾
+### Sub-route 格式
 
-把這個 zip 裡的 `line/` 整個**覆蓋**你主專案的 `line/` 資料夾。
+每個 sub-route 檔 export 這個物件:
 
-**新檔案**:
-- `line/personal.text.extension/special.js`(新增,處理 <REG>)
-- `line/group.text.extension/special.js`(新增,空殼)
+```js
+// admin.js
+const { createController, matchers } = require('@yichunlin/message-bot');
 
-**修改檔案**:
-- `line/index.js`(typo 修正、Promise.allSettled)
-- `line/handlers/text.js`(typo + lineClient 統一)
-- `line/personal.text.extension/index.js`(改用 message-bot)
-- `line/personal.text.extension/admin.js`(清理 imports)
-- `line/personal.text.extension/employee.js`(清理 imports)
-- `line/personal.text.extension/system.js`(加 whoami)
-- `line/group.text.extension/index.js`(改用 message-bot)
-- `line/group.text.extension/admin.js`(清理 imports)
-- `line/group.text.extension/system.js`(加 whoami)
-- `line/group.text.extension/normal.js`(保留原本天氣)
+const route = createController();
 
-### Step 4:啟動 + 測試
+route.when(matchers.regex(/^kick$/, 'command'), async (ctx) => {
+  ctx.reply = 'kicked';
+});
 
-```bash
-node app.js  # 或你原本的啟動指令
+module.exports = {
+  prefix: '!',
+  requires: 'admin',          // 可選,供權限系統使用
+  route: (ctx) => route.handle(ctx),
+};
 ```
 
-私訊 bot 測試這幾個指令:
+### Special Route
 
-| 指令 | 預期回應 |
-|------|---------|
-| `/whoami` | 你的 LINE userId(**記下來,Phase 2 設定 ROOT_USERS 用**) |
-| `>你好` | `安安!這是 emp route` |
-| `!你好` | `安安!這是 admin route` |
-| `/你好` | `安安!這是 sys route` |
-| `<REG>test` | 走 REG 註冊流程 |
+特殊訊息(不走 prefix 解析),例如機器訊息 `<REG>token`、`[DATA]xxx`:
 
-群組裡測試:
+```js
+// special.js
+const { createController, matchers } = require('@yichunlin/message-bot');
 
-| 指令 | 預期回應 |
-|------|---------|
-| `>files` | 群組檔案連結 |
-| `>派工單` | 派工單 URL |
-| `>天氣 金城鎮` | 天氣資料 |
-| `/whoami` | userId + groupId |
+module.exports = function (context) {
+  const router = createController();
+  const { objectServer } = context;
 
----
+  router.when(matchers.regex(/^<REG>(.+)$/), async (ctx) => {
+    const token = ctx.match[1];
+    const result = await objectServer.regist(token, ctx.userId);
+    ctx.reply = String(result);
+  });
 
-## 檔案結構說明
-
-### `message-bot/`(新套件)
-
-```
-message-bot/
-├── package.json                  ← npm 設定,依賴 onion-strategy
-├── README.md                     ← API 文件
-├── LICENSE
-├── .gitignore
-├── src/
-│   ├── index.js                  ← 套件入口
-│   ├── controller.js             ← createMessageBot 主邏輯
-│   ├── prefix-parser.js          ← 解析 /、!、> 指令
-│   └── route-loader.js           ← 動態載入 sub-routes
-└── examples/
-    ├── line-personal.js          ← personal 整合範例
-    └── line-group.js             ← group 整合範例
+  return (ctx) => router.handle(ctx);
+};
 ```
 
-### `line/`(整合層)
+### Hooks(注入式 middleware)
 
+要做平台特定的 middleware(例如儲存訊息、推送 logger),用 `hooks`:
+
+```js
+const saveMetadata = (context) => async (ctx, next) => {
+  await context.db.save({
+    messageId: ctx.messageId,
+    text: ctx.text,
+    userId: ctx.userId,
+  });
+  await next();
+};
+
+const pushLogger = (context) => async (ctx, next) => {
+  await context.logger.send(ctx.text);
+  await next();
+};
+
+const bot = createMessageBot({
+  subRoutesDir: __dirname,
+  hooks: [
+    saveMetadata(context),
+    pushLogger(context),
+  ],
+});
 ```
-line/
-├── index.js                      ← LINE webhook 主程式
-├── handlers/
-│   └── text.js                   ← 文字訊息分流(personal vs group)
-├── personal.text.extension/      ← 個人聊天的 bot
-│   ├── index.js                  ← 組裝 bot(17 行,使用 message-bot)
-│   ├── special.js                ← <REG> 等特殊訊息
-│   ├── admin.js                  ← ! 指令路由
-│   ├── system.js                 ← / 指令路由
-│   └── employee.js               ← > 指令路由
-└── group.text.extension/         ← 群組聊天的 bot
-    ├── index.js                  ← 組裝 bot(注入 metadata + logger hooks)
-    ├── special.js                ← 特殊訊息(目前空殼)
-    ├── admin.js                  ← ! 指令路由
-    ├── system.js                 ← / 指令路由
-    └── normal.js                 ← > 指令路由(保留原本天氣等指令)
+
+## 完整範例:LINE 整合
+
+```js
+// line/personal.text.extension/index.js
+const { createMessageBot } = require('@yichunlin/message-bot');
+
+let bot = null;
+
+module.exports = function (context) {
+  if (bot) return bot;
+
+  bot = createMessageBot({
+    name: 'line-personal',
+    subRoutesDir: __dirname,
+    specialRoute: require('./special')(context),
+    hooks: [
+      // personal 不需要 metadata / logger
+    ],
+    onError: (err, ctx) => {
+      console.error('[bot error]', err);
+      ctx.reply = '系統錯誤,請稍後再試';
+    },
+  });
+
+  return bot;
+};
 ```
 
----
+```js
+// line/group.text.extension/index.js
+const { createMessageBot } = require('@yichunlin/message-bot');
 
-## 主要變更摘要
+let bot = null;
 
-### 🐛 Bug 修正
-- 單例污染(每次呼叫重複註冊 middleware)
-- `<REG>` 處理位置(原本被 prefix 路由攔截到不下去)
-- typo:`persionalBot` → `personalBot`、`loadMessageStragegy` → `loadMessageStrategy`
-- `Promise.all` 改 `Promise.allSettled`(單一 event 失敗不影響其他)
+module.exports = function (context) {
+  if (bot) return bot;
 
-### 🏗️ 架構改進
-- 抽出 `message-bot` 獨立套件,核心引擎與 LINE 解耦
-- `special.js` 獨立處理特殊訊息(不再混在主 pipeline)
-- Hooks 模式注入平台特定邏輯(metadata、logger)
-- 預留 `requires` 欄位(Phase 2 權限系統用)
+  const { Line, Message } = context.models;
 
-### 🔮 為下階段鋪路
-- Phase 2:權限系統(在 message-bot 加 helper、設定 ROOT_USERS)
-- Phase 3:外掛系統(在 message-bot 加 plugin loader)
-- Phase 4:群組管理(加 groupStore、handleJoin/Leave)
+  // hooks: 平台特定的 middleware
+  const saveMetadata = async (ctx, next) => {
+    try {
+      const path = Message.createRoomFolder(ctx.groupId);
+      await Line.saveStorageMetadata(path, ctx.messageId, {
+        text: ctx.text,
+        createdBy: ctx.userId,
+        createdAt: new Date(),
+      });
+    } catch (err) {
+      console.error('[save metadata]', err);
+    }
+    await next();
+  };
 
----
+  const pushLogger = async (ctx, next) => {
+    try {
+      const group = await context.lineClient.getGroupSummary(ctx.groupId);
+      const profile = await Line.getMemberProfile(ctx.groupId, ctx.userId, 'group');
+      await axios.post(LOGGER_URL, {
+        title: group.groupName,
+        message: [ctx.text],
+        footer: profile.displayName,
+      }, { timeout: 3000 });
+    } catch (err) {
+      console.error('[logger]', err);
+    } finally {
+      await next();
+    }
+  };
 
-## 遇到問題?
+  bot = createMessageBot({
+    name: 'line-group',
+    subRoutesDir: __dirname,
+    specialRoute: require('./special')(context),
+    hooks: [
+      injectServices(context),     // ctx.services
+      saveMetadata,
+      pushLogger,
+    ],
+    onError: (err, ctx) => {
+      console.error('[bot error]', err);
+      ctx.reply = '系統錯誤,請稍後再試';
+    },
+  });
 
-跑起來有問題的話,把 server log 貼出來,常見問題:
+  return bot;
+};
 
-- **Cannot find module '@yichunlin/message-bot'** → npm install 沒做或失敗
-- **某個 sub-route 沒生效** → 檢查 `module.exports` 有沒有正確 `{ prefix, route }`
-- **`<REG>` 沒回應** → 檢查 special.js 的 objectServer 是不是從 context 拿到
-- **記憶體一直漲** → 應該不會了,但確認所有 `let __static_bot = null` 都有對應的 `if (bot) return bot`
+function injectServices(context) {
+  return async (ctx, next) => {
+    ctx.services = context.services;
+    await next();
+  };
+}
+```
 
----
+## 為什麼用 hooks 而不是直接寫死
 
-*Phase 1 by message-bot v0.1.0*
+「儲存訊息 metadata」「推送 logger」是**平台 / 應用程式特定的需求**,把它們留給使用者注入,而不是寫死在套件裡。
+
+這樣 message-bot 可以被任何平台使用 — Discord 不需要 LINE 的 metadata 儲存格式;CLI 工具完全不需要 logger。
+
+## License
+
+MIT
