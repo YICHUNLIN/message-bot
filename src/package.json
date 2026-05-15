@@ -1,0 +1,41 @@
+{
+  "name": "@yichunlin/message-bot",
+  "version": "0.1.0",
+  "description": "Pipeline-based message handling engine with prefix routing. Platform-agnostic (LINE, Discord, CLI, IoT).",
+  "main": "./src/index.js",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "bot",
+    "message",
+    "middleware",
+    "onion",
+    "line",
+    "discord",
+    "command",
+    "router",
+    "plugin"
+  ],
+  "author": "YICHUNLIN",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YICHUNLIN/message-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YICHUNLIN/message-bot/issues"
+  },
+  "homepage": "https://github.com/YICHUNLIN/message-bot#readme",
+  "engines": {
+    "node": ">=14"
+  },
+  "dependencies": {
+    "onion-strategy": "github:YICHUNLIN/onion-strategy"
+  }
+}
