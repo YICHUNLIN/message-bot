@@ -1,6 +1,6 @@
 {
   "name": "@yichunlin/message-bot",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pipeline-based message handling engine with prefix routing. Platform-agnostic (LINE, Discord, CLI, IoT).",
   "main": "./src/index.js",
   "files": [
